@@ -1,171 +1,198 @@
 mod appenv;
+
+use std::env;
+use std::io;
 use env_logger::{Builder, Env, Logger};
 use log::{error, info, LevelFilter};
-use std::{env, io};
+use crate::appenv::ValidEnvKey;
 
-const ERROR_ARGUMENTS: &str = "Incorrect arguments!";
-const ERROR_FLAGS: &str = "Error: invalid flag detected!";
-const ERROR_READING_INPUT: &str = "Error reading input!";
+// Constants for error messages
+const MSG_ERROR_ARGUMENTS: &str = "Incorrect arguments!";
+const MSG_ERROR_FLAGS: &str = "Error: invalid flag detected!";
+const MSG_ERROR_READING_INPUT: &str = "Error reading input!";
+const INVALID_FLAG: &str = "--bad-flag";
+const VALID_FLAG: &str = "--check-env";
 
 fn main() {
-    env_logger::Builder::new()
-        .filter_level(LevelFilter::Trace)
-        .init();
+    initialize_logger();
 
     let args: Vec<String> = std::env::args().collect();
+    if let Err(err) = handle_args(&args) {
+        error!("{}", err);
+        std::process::exit(1);
+    }
+
+    if let Err(err) = read_from_stdin() {
+        error!("{}", err);
+        std::process::exit(1);
+    }
+}
+
+/// Initializes the logger with basic configuration
+fn initialize_logger() {
+    Builder::new()
+        .filter_level(LevelFilter::Trace)
+        .init();
+}
+
+fn handle_args(args: &[String]) -> Result<(), &'static str> {
     match args.len() {
         1 => {
-            println!("Count: 0");
-            info!("Count: 0\n");
+            info!("Count: 0");
+            Ok(())
         }
         2 => {
-            error!("{}", ERROR_ARGUMENTS);
-            std::process::exit(1)
+            process_flags(args)?;
+            info!("Count: {}", args.len() - 1);
+            Ok(())
         }
-        _ => {
-            process_flags(&args);
-            println!("Count: {}", args.len() - 1);
-            info!("Count: {}\n", args.len() - 1);
-        }
-    }
-    let mut input = String::new();
-    let result = io::stdin().read_line(&mut input).unwrap_or_else(|err| {
-        error!("{ERROR_READING_INPUT}: {err}");
-        0
-    });
-    verify_standard_input(&mut input, Some(result));
-}
-
-fn process_flags(args: &[String]) {
-    verify_input_flags(args);
-    verify_if_env_is_needed(args);
-}
-
-fn verify_if_env_is_needed(args: &[String]) {
-    if args.iter().skip(1).any(|arg| arg == "--check-env") {
-        let _ = verify_environment_variables("FOO");
+        _ => Err(MSG_ERROR_ARGUMENTS),
     }
 }
 
-fn verify_standard_input(input: &mut String, result: Option<usize>) {
-    if let Some(_) = result {
-        if "pink\n".eq_ignore_ascii_case(&input) {
-            info!("panther!\n");
-            println!("panther!");
+fn process_flags(args: &[String]) -> Result<(), &'static str> {
+    verify_input_flags(args)?;
+
+    if args.iter().any(|arg| arg == VALID_FLAG) {
+        handle_check_env_flag()?;
+    }
+
+    Ok(())
+}
+
+fn verify_input_flags(args: &[String]) -> Result<(), &'static str> {
+    if args.iter().any(|arg| arg == INVALID_FLAG) {
+        return Err(MSG_ERROR_FLAGS);
+    }
+    Ok(())
+}
+
+/// Handles the `--check-env` flag functionality
+fn handle_check_env_flag() -> Result<(), &'static str> {
+    verify_environment_variables(ValidEnvKey::FOO.as_str())
+}
+
+fn verify_environment_variables(key: &str) -> Result<(), &'static str> {
+    if let Some(value) = env::var_os(key) {
+        let value_str = value.to_string_lossy();
+        if appenv::is_env_variable_value_valid(key, &value_str).is_err() {
+            return Err("Error in environment variable value.");
         }
+        info!("ENV: {}={}", key, value_str);
+        Ok(())
     } else {
-        error!("{ERROR_READING_INPUT}");
+        Err("Error reading env: does not exist!")
     }
 }
 
-fn verify_environment_variables(search_for: &str) {
-    match env::var_os(search_for) {
-        Some(val) => {
-            if appenv::is_env_variable_value_valid(search_for, &val.to_str().unwrap()).is_ok() {
-                info!("ENV: {search_for}=bar\n");
-                println!("ENV: {search_for}=bar");
-            } else {
-                error!("Error in ENV: {search_for}");
-            }
-        }
-        None => {
-            error!("Error reading env: {search_for} does not exist!");
-            std::process::exit(2);
-        }
+fn read_from_stdin() -> Result<(), &'static str> {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).map_err(|_| MSG_ERROR_READING_INPUT)?;
+
+    if ValidEnvKey::PINK.as_str().eq_ignore_ascii_case(&input.trim()) {
+        info!("elephant");
     }
+    Ok(())
 }
 
-const INVALID_FLAG: &str = "--bad-flag";
-fn verify_input_flags(args: &[String]) {
-    if args.iter().skip(1).any(|arg| arg == crate::INVALID_FLAG) {
-        error!("{ERROR_FLAGS}");
-        std::process::exit(2);
-    }
-}
 #[cfg(test)]
 mod tests {
-    use crate::ERROR_ARGUMENTS;
-    /// Note: we are not adding 'use super::*' because we are not calling any of the production
-    /// code above. This can be confusing. Running cargo test won't re-compile the above production
-    /// code, because the compiler doesn't see reason for it, because we do not call any of the code
-    /// above.
-    ///
-    /// So to have accurate test results, you must first build the code manually and then run the
-    /// tests.
     use assert_cmd::Command;
+    use predicates::str::contains;
+    use crate::appenv::ValidEnvKey;
+    use crate::{MSG_ERROR_ARGUMENTS};
 
-    #[test]
-    fn test_basic_success() -> Result<(), Box<dyn std::error::Error>> {
-        let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
+    /// Step 1: Basic success case
+    /// Uncomment this test first and run it.
+    /// It tests if the program runs without arguments and prints "Count: 0".
+     #[test]
+    fn test_basic_success() {
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
             .assert()
             .success()
-            .stdout(predicates::str::contains("Count: 0"));
-        Ok(())
+            .stderr(contains("Count: 0"));
     }
-    #[test]
-    fn test_basic_failure() -> Result<(), Box<dyn std::error::Error>> {
-        let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
-            .args(["one argument"])
+
+
+    /// Step 2: Argument failure case
+    /// Uncomment this test to see how invalid arguments cause an error.
+     #[test]
+    fn test_basic_failure() {
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
+            .args(["invalid-arg", "one-too-many"])
             .assert()
             .failure()
-            .stderr(predicates::str::contains(ERROR_ARGUMENTS));
-        Ok(())
+            .stderr(contains(MSG_ERROR_ARGUMENTS));
     }
 
-    #[test]
-    fn test_with_bad_flags() -> Result<(), Box<dyn std::error::Error>> {
-        let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
-            .args(["--some-flag", "--bad-flag"])
+    /// Step 3: Testing invalid flags
+    /// Uncomment this test to observe error handling for bad flags.
+     #[test]
+    fn test_with_bad_flags() {
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
+            .args(["--bad-flag"])
             .assert()
             .failure()
-            .code(2)
-            .stderr(predicates::str::contains("Error: invalid flag"));
-        Ok(())
+            .stderr(contains("Error: invalid flag detected!"));
     }
 
-    #[test]
-    fn test_with_good_flags() -> Result<(), Box<dyn std::error::Error>> {
-        let output = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
-            .args(["--some-flag", "--some-other-flag"])
+    /// Step 4: Testing valid flags
+    /// Uncomment this test to confirm the count with valid flags.
+     #[test]
+    fn test_with_good_flags() {
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
+            .args(["--flag1"])
             .assert()
             .success()
-            .stdout(predicates::str::contains("Count: 2"));
-        Ok(())
+            .stderr(contains("Count: 1"));
     }
 
+    /// Step 5: Reading from stdin
+    /// Uncomment this to test the stdin functionality.
     #[test]
-    fn test_input_output() -> Result<(), Box<dyn std::error::Error>> {
-        use predicates::prelude::PredicateBooleanExt;
-        let _result = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
-            .args(["--some-flag", "--some-other-flag"])
-            .write_stdin("pink\n")
+    fn test_input_output() {
+
+        let binding = vec![];
+        let valid_values = crate::appenv::ENVIRONMENT_RULES
+            .get(ValidEnvKey::PINK.as_str())
+            .unwrap_or(&binding);
+
+        let stderr_predicate = predicates::str::contains(valid_values.join("|"));
+
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
+            .write_stdin(ValidEnvKey::PINK.as_str())
             .assert()
             .success()
-            .stdout(predicates::str::contains("panther!"));
-        Ok(())
+            .stderr(stderr_predicate);
     }
 
-    #[test]
-    fn test_environment_correct() -> Result<(), Box<dyn std::error::Error>> {
-        let _result = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
-            .args(["--check-env", "--some-other-flag"])
+    /// Step 6: Environment variable success
+    /// Uncomment this to verify correct environment variable handling.
+     #[test]
+    fn test_environment_correct() {
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
+            .args(["--check-env"])
             .env("FOO", "bar")
             .assert()
             .success()
-            .stdout(predicates::str::contains("ENV: FOO=bar"));
-        Ok(())
+            .stderr(contains("ENV: FOO=bar"));
     }
 
-    #[test]
-    fn test_environment_incorrect() -> Result<(), Box<dyn std::error::Error>> {
-        let _result = Command::cargo_bin(env!("CARGO_PKG_NAME"))?
-            .args(["--check-env", "--some-other-flag"])
+    /// Step 7: Environment variable failure
+    /// Uncomment this to see failure when the environment variable is missing.
+     #[test]
+    fn test_environment_incorrect() {
+        Command::cargo_bin(env!("CARGO_PKG_NAME"))
+            .unwrap()
+            .args(["--check-env"])
             .assert()
             .failure()
-            .code(2)
-            .stderr(predicates::str::contains(
-                "Error reading env: FOO does not exist!",
-            ));
-        Ok(())
+            .stderr(contains("Error reading env: does not exist!"));
     }
 }

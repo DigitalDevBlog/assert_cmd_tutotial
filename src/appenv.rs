@@ -2,33 +2,41 @@ use log::error;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
-enum ValidEnvKey {
+pub enum ValidEnvKey {
     FOO,
     PINK,
 }
 
 impl ValidEnvKey {
-    fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
             ValidEnvKey::FOO => "FOO",
-            ValidEnvKey::PINK => "PINK"
+            ValidEnvKey::PINK => "PINK",
         }
     }
-    fn all() -> &'static [ValidEnvKey] {
+
+    /// Returns all valid keys as a slice.
+    pub fn all() -> &'static [ValidEnvKey] {
         &[ValidEnvKey::FOO, ValidEnvKey::PINK]
     }
 }
-/// This is our table of valid environment variables for this program including the valid values
-/// for the environment variables. The reason we have programmed this with an enum for the valid
-/// environment variables, is because it allows us to check compile time for errors.
-/// This is a type safe solution.
-static ENVIRONMENT_RULES: Lazy<HashMap<&str, Vec<&str>>> = Lazy::new(|| {
+
+/// Represents a single environmental validation rule.
+#[derive(Debug)]
+pub struct ValidEnvRule<'a> {
+    pub key: &'a str,
+    pub valid_values: &'a [&'a str],
+}
+
+/// Centralized environment validation rules.
+pub static ENVIRONMENT_RULES: Lazy<HashMap<&str, Vec<&str>>> = Lazy::new(|| {
     let mut map = HashMap::new();
     map.insert(ValidEnvKey::FOO.as_str(), vec!["bar"]);
     map.insert(ValidEnvKey::PINK.as_str(), vec!["elephant"]);
     map
 });
 
+/// Wrapper for environment variable
 #[derive(Debug)]
 struct ValidEnvKeyValue<'a> {
     pub key: &'a str,
