@@ -2,10 +2,30 @@ use log::error;
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
+enum ValidEnvKey {
+    FOO,
+    PINK,
+}
+
+impl ValidEnvKey {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ValidEnvKey::FOO => "FOO",
+            ValidEnvKey::PINK => "PINK"
+        }
+    }
+    fn all() -> &'static [ValidEnvKey] {
+        &[ValidEnvKey::FOO, ValidEnvKey::PINK]
+    }
+}
+/// This is our table of valid environment variables for this program including the valid values
+/// for the environment variables. The reason we have programmed this with an enum for the valid
+/// environment variables, is because it allows us to check compile time for errors.
+/// This is a type safe solution.
 static ENVIRONMENT_RULES: Lazy<HashMap<&str, Vec<&str>>> = Lazy::new(|| {
     let mut map = HashMap::new();
-    map.insert("FOO", vec!["bar"]);
-    map.insert("PINK", vec!["elephant"]);
+    map.insert(ValidEnvKey::FOO.as_str(), vec!["bar"]);
+    map.insert(ValidEnvKey::PINK.as_str(), vec!["elephant"]);
     map
 });
 
@@ -45,13 +65,13 @@ mod tests {
 
     #[test]
     fn test_env_valid_variable() {
-        assert_eq!(true, is_valid_env_variable("FOO").is_ok());
+        assert_eq!(true, is_valid_env_variable(ValidEnvKey::FOO.as_str()).is_ok());
     }
 
     #[test]
     fn test_env_variable_value_empty_value() {
         assert_eq!(
-            is_env_variable_value_valid("FOO", ""),
+            is_env_variable_value_valid(ValidEnvKey::FOO.as_str(), ""),
             Err("Key or value cannot be empty".to_string())
         );
     }
@@ -64,13 +84,13 @@ mod tests {
     }
     #[test]
     fn test_env_variable_value_valid_key_and_value() {
-        assert!(is_env_variable_value_valid("FOO", "bar").is_ok());
+        assert!(is_env_variable_value_valid(ValidEnvKey::FOO.as_str(), "bar").is_ok());
     }
 
     #[test]
     fn test_env_variable_value_invalid_value_for_key() {
         assert_eq!(
-            is_env_variable_value_valid("FOO", "baz"),
+            is_env_variable_value_valid(ValidEnvKey::FOO.as_str(), "baz"),
             Err("Invalid value for environment variable: FOO, Found value: baz, expected on of value: [\"bar\"]".to_string())
         );
     }
