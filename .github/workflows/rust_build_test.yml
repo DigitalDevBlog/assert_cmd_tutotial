@@ -8,7 +8,7 @@ on:
 jobs:
   build-and-test:
     name: Build and Test
-    runs-on: ubuntu-latest # You can choose a different runner if needed
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         toolchain:
